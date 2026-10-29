@@ -177,7 +177,7 @@ def main():
     if qwen_ok:
         print(f"🧠 LLM 引擎: {engine.QWEN_MODEL}（已预热）")
     else:
-        print(f"⚠️ 未连上 Ollama，改口识别不可用，只做基础口头禅过滤")
+        print(f"⚠️ 未连上 Ollama，只用规则清洗（口头禅和标准改口能处理，复杂改口会弱一些）")
         print(f"   开启方式: ollama pull {engine.QWEN_MODEL}，再确保 Ollama 在运行")
     print("=" * 60)
     try:

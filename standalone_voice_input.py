@@ -187,7 +187,7 @@ def main():
     if qwen_ok:
         print(f"🧠 清洗：{engine.QWEN_MODEL}")
     else:
-        print(f"⚠️ 未连上 Ollama，改口识别不可用，只做基础口头禅过滤（ollama pull {engine.QWEN_MODEL} 后重启即可）")
+        print(f"⚠️ 未连上 Ollama，只用规则清洗（口头禅和标准改口能处理，复杂改口会弱一些）（ollama pull {engine.QWEN_MODEL} 后重启即可）")
     if IS_MAC:
         print("ℹ️ 首次使用需在 系统设置 → 隐私与安全性 里给终端开启「输入监控」和「辅助功能」")
     print("🛡️ 全程离线，Ctrl+C 退出")
