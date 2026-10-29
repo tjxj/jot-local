@@ -17,3 +17,6 @@ Jot.xcodeproj/
 Package.resolved
 build/
 xcuserdata/
+
+# Python
+__pycache__/

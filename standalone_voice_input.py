@@ -4,161 +4,204 @@ Jot 纯 Python 免编译独立客户端 (Standalone Push-to-Talk Client)
 无需 Xcode 编译，macOS / Windows 终端直接运行，实现“按住热键说话、松手光标打字”
 
 特性：
-- 默认按键：按住 F8 说话（或通过环境变量 HOTKEY 修改）
-- 录音引擎：sounddevice 内存流式缓冲
-- ASR 识别：SenseVoice-Small
-- 语义清洗：Qwen2.5
-- 文本上屏：macOS 走 System Events ⌘V，Windows 走剪贴板 + Ctrl+V
+- 默认按键：macOS 按住右侧 Option，Windows 按住右侧 Ctrl（可用环境变量 HOTKEY 修改，如 HOTKEY=f8）
+- 录音引擎：sounddevice 常开麦克风流，保留按键前 0.3 秒，开头的字不会被吞
+- ASR 识别：SenseVoice-Small（Apple 芯片走 MPS，NVIDIA 显卡走 CUDA）
+- 语义清洗：Qwen2.5（Ollama），不可用时退回规则清洗
+- 文本上屏：剪贴板 + 粘贴快捷键，粘贴后恢复原剪贴板内容
 """
 
 import os
 import sys
 import time
-import json
-import tempfile
-import threading
+import queue
+import collections
 import subprocess
-import urllib.request
+import threading
 
 try:
-    import sounddevice as sd
     import numpy as np
-    import soundfile as sf
+    import pyperclip
+    import sounddevice as sd
     from pynput import keyboard
-except ImportError:
-    print("缺少必要依赖，请运行: pip install sounddevice numpy soundfile pynput")
+except ImportError as e:
+    print(f"缺少依赖（{e.name}），请先运行: pip install -r requirements.txt")
+    sys.exit(1)
 
-HOTKEY_NAME = os.environ.get("HOTKEY", "f8").lower()
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen2.5:1.5b")
+import engine
 
-SAMPLE_RATE = 16000
-CHANNELS = 1
+IS_MAC = sys.platform == "darwin"
+IS_WIN = sys.platform == "win32"
 
+HOTKEY_NAME = os.environ.get("HOTKEY", "alt_r" if IS_MAC else "ctrl_r").lower()
+HOTKEY_LABEL = {"alt_r": "右侧 Option" if IS_MAC else "右侧 Alt", "ctrl_r": "右侧 Ctrl", "cmd_r": "右侧 Command"}.get(HOTKEY_NAME, HOTKEY_NAME.upper())
+SOUND = os.environ.get("JOT_SOUND", "1") != "0"
+
+SAMPLE_RATE = engine.SAMPLE_RATE
+BLOCK_SIZE = 1024
+PRE_ROLL_SECONDS = 0.3
+MIN_PRESS_SECONDS = 0.3
+
+state_lock = threading.Lock()
 is_recording = False
+press_started = 0.0
 audio_frames = []
-lock = threading.Lock()
+pre_roll = collections.deque(maxlen=int(PRE_ROLL_SECONDS * SAMPLE_RATE / BLOCK_SIZE) + 1)
+jobs = queue.Queue()
+kb = keyboard.Controller()
+
 
 def record_callback(indata, frames, time_info, status):
-    if is_recording:
-        audio_frames.append(indata.copy())
+    with state_lock:
+        if is_recording:
+            audio_frames.append(indata.copy())
+        else:
+            pre_roll.append(indata.copy())
+
+
+def play_cue(start):
+    """开始/结束录音的提示音（JOT_SOUND=0 关闭）"""
+    if not SOUND:
+        return
+
+    def _play():
+        try:
+            if IS_MAC:
+                sound = "Tink" if start else "Pop"
+                subprocess.run(["afplay", f"/System/Library/Sounds/{sound}.aiff"], check=False)
+            elif IS_WIN:
+                import winsound
+                winsound.Beep(880 if start else 660, 60)
+        except Exception:
+            pass
+
+    threading.Thread(target=_play, daemon=True).start()
+
 
 def insert_text_into_active_app(text):
-    """通过剪贴板 + 粘贴快捷键把文字送到当前光标（兼容中文和各种符号最稳）"""
+    """通过剪贴板 + 粘贴快捷键把文字送到当前光标（兼容中文和各种符号最稳），之后恢复原剪贴板"""
     if not text:
         return
-    if sys.platform == "darwin":
-        p = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE, close_fds=True)
-        p.communicate(text.encode('utf-8'))
-
-        script = '''
-        tell application "System Events"
-            keystroke "v" using {command down}
-        end tell
-        '''
-        subprocess.run(['osascript', '-e', script])
-    elif sys.platform == "win32":
-        # clip.exe 需要带 BOM 的 UTF-16 才能正确处理中文
-        subprocess.run(['clip'], input=text.encode('utf-16'), check=True)
-        controller = keyboard.Controller()
-        with controller.pressed(keyboard.Key.ctrl):
-            controller.press('v')
-            controller.release('v')
-    else:
-        print(f"[提示] 当前系统暂不支持自动上屏，请手动复制：{text}")
-
-def process_audio_and_type(audio_data):
-    """后台异步处理转写与输入"""
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        sf.write(f.name, audio_data, SAMPLE_RATE)
-        wav_path = f.name
-
-    print("\n[🎙️ 识别中...] 正在调用 SenseVoice-Small...")
-    raw_text = ""
     try:
-        from funasr import AutoModel
-        model = AutoModel(model="iic/SenseVoiceSmall", vad_model="fsmn-vad", device="cpu", disable_update=True)
-        res = model.generate(input=wav_path, language="auto", use_itn=True)
-        raw_text = res[0]["text"] if res else ""
-    except Exception as e:
-        print(f"[ASR 错误] {e}")
-    finally:
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
 
-    if not raw_text.strip():
-        print("[提示] 未检测到有效语音")
-        return
+    pyperclip.copy(text)
+    time.sleep(0.05)
+    modifier = keyboard.Key.cmd if IS_MAC else keyboard.Key.ctrl
+    with kb.pressed(modifier):
+        kb.press("v")
+        kb.release("v")
 
-    print(f"[原始识别] {raw_text}")
-    print("[🧠 润色中...] 正在调用 Qwen2.5 去口头禅...")
+    if previous is not None:
+        # 等目标应用读完剪贴板再恢复
+        time.sleep(0.5)
+        try:
+            if pyperclip.paste() == text:
+                pyperclip.copy(previous)
+        except Exception:
+            pass
 
-    prompt = f"""你是一个输入法语义清洗助手。请将以下粗糙口语转写重构为标准、得体、流畅的书面语：
-1. 彻底剔除'嗯'、'那个'、'就是说'等口头禅与犹豫停顿
-2. 识别说话人的中途改口（如'三点不对四点'保留'四点'），只保留最终决定
-3. 补全规范标点
-待处理文本：
-{raw_text}
-直接输出最终文本，不要解释。"""
 
-    final_text = raw_text
-    try:
-        payload = {
-            "model": QWEN_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.1, "num_predict": 128}
-        }
-        req = urllib.request.Request(
-            f"{OLLAMA_HOST}/api/generate",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            final_text = data.get("response", raw_text).strip()
-    except Exception as e:
-        print(f"[Qwen 响应异常，直接使用初稿] {e}")
+def worker():
+    """按说话顺序依次处理，避免前后两句上屏顺序错乱"""
+    while True:
+        audio = jobs.get()
+        t0 = time.time()
+        try:
+            raw_text = engine.transcribe(audio)
+        except Exception as e:
+            print(f"[识别出错] {e}")
+            continue
+        if not raw_text:
+            print("[提示] 没听到有效语音")
+            continue
+        t1 = time.time()
+        final_text = engine.qwen_clean(raw_text)
+        t2 = time.time()
+        print(f"  原文：{raw_text}")
+        print(f"  上屏：{final_text}  （识别 {(t1 - t0) * 1000:.0f}ms，清洗 {(t2 - t1) * 1000:.0f}ms）")
+        insert_text_into_active_app(final_text)
 
-    print(f"[✅ 上屏文本] {final_text}")
-    insert_text_into_active_app(final_text)
+
+def key_name(key):
+    if isinstance(key, keyboard.KeyCode):
+        return (key.char or "").lower()
+    return str(key).replace("Key.", "").lower()
+
 
 def on_press(key):
-    global is_recording, audio_frames
-    try:
-        key_char = key.char if hasattr(key, 'char') else str(key).replace("Key.", "")
-        if key_char.lower() == HOTKEY_NAME:
-            if not is_recording:
-                is_recording = True
-                audio_frames = []
-                print("\n🔴 [开始录音...] 请说话（松开按键完成）", end="", flush=True)
-    except Exception:
-        pass
+    global is_recording, press_started, audio_frames
+    if key_name(key) != HOTKEY_NAME:
+        return
+    with state_lock:
+        if is_recording:
+            return
+        is_recording = True
+        press_started = time.time()
+        audio_frames = list(pre_roll)
+    play_cue(True)
+    print("🔴 录音中…松开结束")
+
 
 def on_release(key):
-    global is_recording, audio_frames
-    try:
-        key_char = key.char if hasattr(key, 'char') else str(key).replace("Key.", "")
-        if key_char.lower() == HOTKEY_NAME and is_recording:
-            is_recording = False
-            print("\n🟢 [录音结束] 正在转写与清洗...")
-            if len(audio_frames) > 0:
-                audio_data = np.concatenate(audio_frames, axis=0)
-                threading.Thread(target=process_audio_and_type, args=(audio_data,)).start()
-    except Exception:
-        pass
+    global is_recording
+    if key_name(key) != HOTKEY_NAME:
+        return
+    with state_lock:
+        if not is_recording:
+            return
+        is_recording = False
+        held = time.time() - press_started
+        frames = audio_frames
+    if held < MIN_PRESS_SECONDS or not frames:
+        print("⚪ 按得太短，已忽略")
+        return
+    play_cue(False)
+    jobs.put(np.concatenate(frames, axis=0)[:, 0])
+
 
 def main():
+    print("正在加载模型，首次运行会自动下载 SenseVoice（约 900MB）...")
+    asr_ok, qwen_ok = engine.warmup()
+    if not asr_ok:
+        print("❌ SenseVoice 加载失败，请检查依赖安装后重试")
+        sys.exit(1)
+
+    try:
+        stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=BLOCK_SIZE, callback=record_callback)
+        stream.start()
+    except Exception as e:
+        print(f"❌ 打不开麦克风：{e}")
+        if IS_MAC:
+            print("   请在 系统设置 → 隐私与安全性 → 麦克风 中允许当前终端")
+        sys.exit(1)
+
+    threading.Thread(target=worker, daemon=True).start()
+
     print("=" * 60)
-    print("🚀 Jot-Local 纯 Python 独立打字工具已启动")
-    print(f"⌨️ 默认热键: 按住【{HOTKEY_NAME.upper()}】说话，松手自动打字到光标所在处")
-    print("🛡️ 100% 离线运行，无需外网，零泄密")
+    print("🚀 Jot-Local 独立版已就绪")
+    print(f"⌨️ 按住【{HOTKEY_LABEL}】说话，松手自动打字到光标所在处")
+    print(f"🎙️ 识别：SenseVoice-Small（{engine.device()}）")
+    if qwen_ok:
+        print(f"🧠 清洗：{engine.QWEN_MODEL}")
+    else:
+        print(f"⚠️ 未连上 Ollama，改口识别不可用，只做基础口头禅过滤（ollama pull {engine.QWEN_MODEL} 后重启即可）")
+    if IS_MAC:
+        print("ℹ️ 首次使用需在 系统设置 → 隐私与安全性 里给终端开启「输入监控」和「辅助功能」")
+    print("🛡️ 全程离线，Ctrl+C 退出")
     print("=" * 60)
 
-    stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=record_callback)
-    with stream:
+    try:
         with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
             listener.join()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stream.stop()
+        print("\n已退出")
+
 
 if __name__ == "__main__":
     main()

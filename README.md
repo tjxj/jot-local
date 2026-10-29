@@ -1,98 +1,137 @@
-# Jot Local (纯本地离线版)
+# Jot Local（纯本地离线版）
 
-> **告别 Google Gemini 云端 API！基于阿里 SenseVoice-Small + 通义千问 Qwen2.5 的 100% 纯本地、完全免费、隐私安全的智能语音输入方案。**
+> 把 Google Jot 背后的 Gemini 云端接口换成本机的 **SenseVoice-Small + Qwen2.5**：免费、断网可用、语音不出本机
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://github.com/google-gemini/jot-gemini-transcribe-macOS)
-[![Model](https://img.shields.io/badge/ASR-SenseVoice--Small-green.svg)](https://github.com/FunAudioLLM/SenseVoice)
-[![LLM](https://img.shields.io/badge/LLM-Qwen2.5-orange.svg)](https://github.com/QwenLM/Qwen2.5)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#windows-用户)
+[![ASR](https://img.shields.io/badge/ASR-SenseVoice--Small-green.svg)](https://github.com/FunAudioLLM/SenseVoice)
+[![LLM](https://img.shields.io/badge/LLM-Qwen2.5--1.5B-orange.svg)](https://github.com/QwenLM/Qwen2.5)
 
 ---
 
-## 🌟 核心亮点
+## 能做什么
 
-- 💸 **100% 完全免费**：一分钱不花！无需申请海外 API Key，无需绑定外币信用卡，无任何配额上限。
-- ⚡ **极速毫秒级响应**：阿里通义实验室开源的 `SenseVoice-Small` 模型本地单次解码仅需 30~50ms，远快于 Whisper，真正做到“松手即上屏”。
-- 🧠 **去口头禅与改口修正**：自动过滤“嗯、那个、然后、就是说”等语气词；说话中途改口反悔（例如“明天下午三点不对四点开会”），自动只保留最终结论。
-- 🛡️ **数据绝对不出本地**：所有音频录音与大模型处理均在 Mac 本地单机完成，离线断网亦可全速运行，彻底免除商业机密与个人隐私泄露风险。
-- 💻 **开箱即用支持双模式**：
-  1. **方案 A（Jot 官方应用无缝直连）**：内置 Gemini API 兼容代理服务，拦截原生请求并支持最新的 `/v1beta/interactions` 协议，享受官方动态药丸 HUD 与 Accessibility 光标注入。
-  2. **方案 B（纯 Python 免编译独立运行）**：无需 Xcode，macOS / Windows 终端直接运行脚本，按快捷键即可打字。
+- **按住说话，松手上屏**：官方 Jot 客户端直连本地服务，或者用纯 Python 版（macOS / Windows）
+- **删口头禅**：“嗯”“呃”“那个，”“就是说”、口吃重复（我我我觉得）
+- **听懂改口**：“明天上午10点不对，改到下午2点” → “明天下午2点”；“发给张总，算了，还是先发给李经理吧” → “先发给李经理吧”
+- **不乱改**：Qwen 的输出会经过校验，删得太多、出现原文没有的字（比如它去翻译、去回答问题）都会退回规则清洗的结果
+- **Ollama 没开也能用**：只是改口识别能力弱一些
+
+## 实测速度（M4 · 16GB）
+
+| 环节 | 耗时 |
+| :--- | :--- |
+| SenseVoice 听写（MPS，10.7 秒语音） | 约 115ms |
+| Qwen2.5-1.5B 清洗一句短话 | 中位数约 160ms |
+| Qwen2.5-1.5B 清洗 10 秒长句 | 约 350ms |
+
+Apple 芯片自动用 MPS，NVIDIA 显卡自动用 CUDA，否则用 CPU（CPU 下 10 秒语音约 0.6 秒）。可用环境变量 `JOT_DEVICE=cpu` 强制指定
+
+清洗效果：自建的 40 条测试句（口头禅、改口、正常句子各类混合），规则 + Qwen 通过 39 条，唯一没处理好的是“把字体调大一点，算了，还是保持原样吧”这种前后没有对应词的改口
 
 ---
 
-## 🚀 快速上手
+## 快速上手
 
-### 1. 安装环境与依赖
+### 1. 安装依赖
 
 ```bash
-cd /Users/zz/Downloads/jot-local
+git clone https://github.com/tjxj/jot-local.git
+cd jot-local
 pip install -r requirements.txt
 ```
 
-### 2. 启动本地离线服务
+SenseVoice 模型（约 900MB）会在第一次启动时从 ModelScope 自动下载
+
+### 2. 安装 Ollama 和 Qwen2.5
+
+从 [ollama.com](https://ollama.com/download) 安装 Ollama，然后：
 
 ```bash
-./start.sh
-# 或直接运行：python3 server.py
+ollama pull qwen2.5:1.5b
 ```
-服务将在后台监听 `http://127.0.0.1:8080`，首次启动会自动加载并预热本地 `SenseVoice-Small` 模型。
 
-### 3. 连接与使用
+<details>
+<summary>国内网络 pull 失败？从 ModelScope 下载 GGUF 手动导入</summary>
 
-#### 方案一：搭配 Jot 官方 macOS 客户端（推荐）
-1. 从官方 Releases 下载 [Jot-0.4.0.dmg](https://github.com/google-gemini/jot-gemini-transcribe-macOS/releases/download/v0.4.0/Jot-0.4.0.dmg) 并拖入“应用程序”文件夹
-2. 在终端配置或在应用设置（Settings → Advanced）中将 **Endpoint** 设为：
-   ```text
-   http://127.0.0.1:8080
-   ```
-3. API Key 输入任意字符保存
-4. 在任意输入框中长按键盘 **fn** 说话，松手直接上屏
+```bash
+curl -L -o qwen2.5-1.5b-instruct-q4_k_m.gguf \
+  https://modelscope.cn/models/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/master/qwen2.5-1.5b-instruct-q4_k_m.gguf
+echo "FROM ./qwen2.5-1.5b-instruct-q4_k_m.gguf" > Modelfile
+ollama create qwen2.5:1.5b -f Modelfile
+```
 
-#### 方案二：纯 Python 独立模式（免客户端）
-直接运行：
+</details>
+
+保持 Ollama 在后台运行即可，服务启动时会自动预热模型
+
+### 3A. 搭配 Jot 官方 macOS 客户端（推荐）
+
+```bash
+./start.sh        # 或 python3 server.py，监听 http://127.0.0.1:8080
+```
+
+1. 下载 [Jot-0.4.0.dmg](https://github.com/google-gemini/jot-gemini-transcribe-macOS/releases/download/v0.4.0/Jot-0.4.0.dmg) 并安装
+2. Settings → Advanced，Endpoint 填 `http://127.0.0.1:8080`，API Key 随便填几个字符
+3. 在任意输入框按住 **fn** 说话，松手上屏
+
+### 3B. 纯 Python 独立版（免装 Jot）
+
 ```bash
 python3 standalone_voice_input.py
 ```
-按住 **F8** 说话，松开手文字自动输入到当前光标所在窗口。
 
-#### Windows 用户
+- macOS 默认按住 **右侧 Option**，Windows 默认按住 **右侧 Ctrl**，说完松手
+- 按下前 0.3 秒的声音也会录进去，开头的字不会被吞；按不到 0.3 秒视为误触
+- 开始/结束有提示音，`JOT_SOUND=0` 关闭
+- 文字通过剪贴板粘贴到光标处，粘贴后自动恢复原来的剪贴板内容
+- 换热键：`HOTKEY=f9 python3 standalone_voice_input.py`（可选 `alt_r`、`ctrl_r`、`cmd_r`、`f1`～`f12` 等）
+- macOS 第一次运行需要在 系统设置 → 隐私与安全性 里给终端开启「麦克风」「输入监控」「辅助功能」
 
-Jot 官方客户端只有 macOS 版，Windows 用户请使用上面的纯 Python 独立模式：
+### Windows 用户
 
-1. 安装 Python 3.10+ 与 [Ollama for Windows](https://ollama.com/download/windows)，然后运行 `ollama run qwen2.5:1.5b`
-2. 在 PowerShell 中安装依赖并启动：
+Jot 官方客户端只有 macOS 版，Windows 用 3B 的独立版：
+
+1. 安装 Python 3.10+ 和 [Ollama for Windows](https://ollama.com/download/windows)，执行 `ollama pull qwen2.5:1.5b`
+2. PowerShell 里：
    ```powershell
    git clone https://github.com/tjxj/jot-local.git
    cd jot-local
    pip install -r requirements.txt
    python standalone_voice_input.py
    ```
-3. 按住 **F8** 说话，松手后文字通过剪贴板 + Ctrl+V 粘贴到当前光标
-4. 部分笔记本的 F8 需要配合 Fn 键，可以换一个热键：
-   ```powershell
-   $env:HOTKEY="f9"; python standalone_voice_input.py
-   ```
+3. 按住 **右侧 Ctrl** 说话，松手上屏；想换键：`$env:HOTKEY="f9"; python standalone_voice_input.py`
 
-> 注意：文字上屏会占用一次系统剪贴板。
+有 NVIDIA 显卡且装了 CUDA 版 PyTorch 会自动用显卡听写。Windows 部分作者没有真机实测，遇到问题欢迎提 Issue
 
 ---
 
-## 📂 项目结构
+## 环境变量
+
+| 变量 | 默认值 | 作用 |
+| :--- | :--- | :--- |
+| `HOTKEY` | macOS `alt_r` / Windows `ctrl_r` | 独立版的按住说话键 |
+| `JOT_SOUND` | `1` | 独立版提示音，`0` 关闭 |
+| `JOT_DEVICE` | 自动 | 听写设备：`mps` / `cuda` / `cpu` |
+| `QWEN_MODEL` | `qwen2.5:1.5b` | Ollama 里的清洗模型 |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama 地址 |
+| `QWEN_TIMEOUT` | `4` | 清洗超时秒数，超时退回规则清洗 |
+
+---
+
+## 项目结构
 
 ```text
 jot-local/
-├── server.py                   # Gemini /v1beta/interactions 本地代理服务
-├── standalone_voice_input.py   # 纯 Python 独立热键语音输入工具
-├── start.sh                    # 一键启动脚本
-├── requirements.txt            # Python 依赖清单
-├── README_LOCAL.md             # 详细中文架构与部署指南
-├── JotCore/                    # Jot 核心 Swift 源码（已预置本地 8080 端点）
-└── App/                        # Jot 原生 macOS UI 与工程定义
+├── engine.py                   # 识别与清洗引擎（两种模式共用）
+├── server.py                   # Gemini /v1beta/interactions 兼容服务，供 Jot 客户端连接
+├── standalone_voice_input.py   # 纯 Python 按住说话客户端（macOS / Windows）
+├── start.sh                    # 一键启动服务
+├── requirements.txt
+├── README_LOCAL.md             # 协议与实现细节
+├── JotCore/ App/               # Jot 原生 Swift 源码（默认端点已改为本地 8080）
 ```
 
----
+## 开源许可
 
-## 📄 开源许可
-
-本项目基于 Google Jot（Apache 2.0 许可）二次扩展开发，遵循 Apache 2.0 开源协议。
+基于 Google Jot（Apache 2.0）二次开发，遵循 Apache 2.0 协议

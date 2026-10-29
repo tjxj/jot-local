@@ -6,8 +6,8 @@
 
 ## 🌟 核心特性
 
-- 🎙️ **零延迟声学听写**：阿里通义实验室开源的 `SenseVoice-Small`，5 秒语音仅需 30ms 解码，中文与方言识别极准。
-- 🧠 **大模型语义重塑**：通义千问 `Qwen2.5`（推荐 1.5B 或 3B），自动过滤“嗯、那个、就是说”等语气词，并智能识别“改口反悔”（如“明天下午三点不对四点”保留最终结论）。
+- 🎙️ **快速听写**：阿里通义实验室开源的 `SenseVoice-Small`，M4 上走 MPS，10.7 秒语音听写约 115ms。
+- 🧠 **大模型语义重塑**：通义千问 `Qwen2.5-1.5B`，先由规则删口头禅和明确改口，再交给 Qwen 处理复杂情况，输出经过校验防止改写原意，自动过滤“嗯、那个、就是说”等语气词，并智能识别“改口反悔”（如“明天下午三点不对四点”保留最终结论）。
 - 🛡️ **100% 纯本地离线**：声音不出本地，无网络依赖，零泄露风险，无需外币与 API Key。
 - ⚡ **无缝双模式支持**：
   - **模式 A（Jot 官方客户端直连）**：内置 Gemini API 协议兼容服务，Jot 原生 Swift 应用（带悬浮动态药丸 HUD、Accessibility 光标穿透）直接连本地。
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 
 确保本地已安装并运行 Ollama（用于 Qwen2.5 语义清洗）：
 ```bash
-ollama run qwen2.5:1.5b
+ollama pull qwen2.5:1.5b
 ```
 
 ### 2. 方式 A：启动本地服务并配合 Jot 原生客户端
@@ -46,7 +46,7 @@ ollama run qwen2.5:1.5b
 ```bash
 python3 standalone_voice_input.py
 ```
-默认按住键盘 **F8** 说话，松开手后，文字将自动录入当前光标所在的应用窗口。
+macOS 默认按住 **右侧 Option**、Windows 默认按住 **右侧 Ctrl** 说话，松开手后，文字将自动录入当前光标所在的应用窗口。
 
 Windows 用户同样使用这个方式（`python standalone_voice_input.py`），详见 README 的「Windows 用户」一节。
 
@@ -56,6 +56,7 @@ Windows 用户同样使用这个方式（`python standalone_voice_input.py`）�
 
 ```text
 jot-local/
+├── engine.py                   # 识别与清洗引擎（两种模式共用）
 ├── server.py                   # Gemini API 本地兼容服务（SenseVoice + Qwen2.5）
 ├── standalone_voice_input.py   # 纯 Python 独立打字客户端（免编译直接跑）
 ├── start.sh                    # 一键启动脚本
