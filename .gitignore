@@ -20,3 +20,4 @@ xcuserdata/
 
 # Python
 __pycache__/
+local.env

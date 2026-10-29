@@ -11,6 +11,14 @@ import re
 import json
 import urllib.request
 
+# 本机专属配置（不进 git）：同目录下 local.env，每行 KEY=VALUE，环境变量优先
+_LOCAL_ENV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local.env")
+if os.path.exists(_LOCAL_ENV):
+    for _line in open(_LOCAL_ENV, encoding="utf-8"):
+        _k, _, _v = _line.strip().partition("=")
+        if _k and not _k.startswith("#") and _v:
+            os.environ.setdefault(_k.strip(), _v.strip())
+
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen2.5:1.5b")
 QWEN_TIMEOUT = float(os.environ.get("QWEN_TIMEOUT", "4"))
@@ -38,9 +46,13 @@ def pick_device():
     return "cpu"
 
 
+# SenseVoice 模型所在目录，可用 JOT_MODEL_DIR 指到外接盘等位置
+MODEL_DIR = os.path.expanduser(os.environ.get("JOT_MODEL_DIR", "~/.cache/modelscope/hub/models/iic"))
+
+
 def _model_path(name):
     """已下载过就直接用本地路径，断网也能加载"""
-    local = os.path.expanduser(f"~/.cache/modelscope/hub/models/iic/{name}")
+    local = os.path.join(MODEL_DIR, name)
     return local if os.path.exists(os.path.join(local, "model.pt")) else f"iic/{name}"
 
 

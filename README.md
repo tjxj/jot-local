@@ -113,6 +113,9 @@ Jot 官方客户端只有 macOS 版，Windows 用 3B 的独立版：
 | `HOTKEY` | macOS `alt_r` / Windows `ctrl_r` | 独立版的按住说话键 |
 | `JOT_SOUND` | `1` | 独立版提示音，`0` 关闭 |
 | `JOT_DEVICE` | 自动 | 听写设备：`mps` / `cuda` / `cpu` |
+| `JOT_MODEL_DIR` | `~/.cache/modelscope/hub/models/iic` | SenseVoice 模型目录（含 `SenseVoiceSmall/`），可放外接盘 |
+
+这些变量也可以写进项目目录下的 `local.env`（每行 `KEY=VALUE`，不会提交到 git），服务和独立版都会读取
 | `QWEN_MODEL` | `qwen2.5:1.5b` | Ollama 里的清洗模型 |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama 地址 |
 | `QWEN_TIMEOUT` | `4` | 清洗超时秒数，超时退回规则清洗 |
