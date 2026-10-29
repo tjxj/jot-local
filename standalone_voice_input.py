@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Jot 纯 Python 免编译独立客户端 (Standalone Push-to-Talk Client)
-无需 Xcode 编译，任何 Mac 终端直接运行，实现“按住热键说话、松手光标打字”
+无需 Xcode 编译，macOS / Windows 终端直接运行，实现“按住热键说话、松手光标打字”
 
 特性：
 - 默认按键：按住 F8 说话（或通过环境变量 HOTKEY 修改）
 - 录音引擎：sounddevice 内存流式缓冲
 - ASR 识别：SenseVoice-Small
 - 语义清洗：Qwen2.5
-- 文本上屏：macOS System Events 自动无缝键入
+- 文本上屏：macOS 走 System Events ⌘V，Windows 走剪贴板 + Ctrl+V
 """
 
 import os
@@ -44,19 +44,28 @@ def record_callback(indata, frames, time_info, status):
         audio_frames.append(indata.copy())
 
 def insert_text_into_active_app(text):
-    """通过 AppleScript 模拟键盘输入到当前光标"""
+    """通过剪贴板 + 粘贴快捷键把文字送到当前光标（兼容中文和各种符号最稳）"""
     if not text:
         return
-    # 使用剪贴板 + ⌘V 模拟，兼容中文和各种符号最稳
-    p = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE, close_fds=True)
-    p.communicate(text.encode('utf-8'))
-    
-    script = '''
-    tell application "System Events"
-        keystroke "v" using {command down}
-    end tell
-    '''
-    subprocess.run(['osascript', '-e', script])
+    if sys.platform == "darwin":
+        p = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE, close_fds=True)
+        p.communicate(text.encode('utf-8'))
+
+        script = '''
+        tell application "System Events"
+            keystroke "v" using {command down}
+        end tell
+        '''
+        subprocess.run(['osascript', '-e', script])
+    elif sys.platform == "win32":
+        # clip.exe 需要带 BOM 的 UTF-16 才能正确处理中文
+        subprocess.run(['clip'], input=text.encode('utf-16'), check=True)
+        controller = keyboard.Controller()
+        with controller.pressed(keyboard.Key.ctrl):
+            controller.press('v')
+            controller.release('v')
+    else:
+        print(f"[提示] 当前系统暂不支持自动上屏，请手动复制：{text}")
 
 def process_audio_and_type(audio_data):
     """后台异步处理转写与输入"""

@@ -17,7 +17,7 @@
 - 🛡️ **数据绝对不出本地**：所有音频录音与大模型处理均在 Mac 本地单机完成，离线断网亦可全速运行，彻底免除商业机密与个人隐私泄露风险。
 - 💻 **开箱即用支持双模式**：
   1. **方案 A（Jot 官方应用无缝直连）**：内置 Gemini API 兼容代理服务，拦截原生请求并支持最新的 `/v1beta/interactions` 协议，享受官方动态药丸 HUD 与 Accessibility 光标注入。
-  2. **方案 B（纯 Python 免编译独立运行）**：无需 Xcode，任何终端直接运行脚本，按快捷键即可打字。
+  2. **方案 B（纯 Python 免编译独立运行）**：无需 Xcode，macOS / Windows 终端直接运行脚本，按快捷键即可打字。
 
 ---
 
@@ -55,6 +55,26 @@ pip install -r requirements.txt
 python3 standalone_voice_input.py
 ```
 按住 **F8** 说话，松开手文字自动输入到当前光标所在窗口。
+
+#### Windows 用户
+
+Jot 官方客户端只有 macOS 版，Windows 用户请使用上面的纯 Python 独立模式：
+
+1. 安装 Python 3.10+ 与 [Ollama for Windows](https://ollama.com/download/windows)，然后运行 `ollama run qwen2.5:1.5b`
+2. 在 PowerShell 中安装依赖并启动：
+   ```powershell
+   git clone https://github.com/tjxj/jot-local.git
+   cd jot-local
+   pip install -r requirements.txt
+   python standalone_voice_input.py
+   ```
+3. 按住 **F8** 说话，松手后文字通过剪贴板 + Ctrl+V 粘贴到当前光标
+4. 部分笔记本的 F8 需要配合 Fn 键，可以换一个热键：
+   ```powershell
+   $env:HOTKEY="f9"; python standalone_voice_input.py
+   ```
+
+> 注意：文字上屏会占用一次系统剪贴板。
 
 ---
 

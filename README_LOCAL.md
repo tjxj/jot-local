@@ -48,6 +48,8 @@ python3 standalone_voice_input.py
 ```
 默认按住键盘 **F8** 说话，松开手后，文字将自动录入当前光标所在的应用窗口。
 
+Windows 用户同样使用这个方式（`python standalone_voice_input.py`），详见 README 的「Windows 用户」一节。
+
 ---
 
 ## 📁 目录结构
